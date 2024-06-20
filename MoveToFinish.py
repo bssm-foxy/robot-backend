@@ -1,14 +1,12 @@
 import rclpy
-import yaml
 import time 
-import threading
 import math
 import requests
 
 from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import NavigateToPose
 
-from API.GetStartPosition import GetStartPosition
+from API.GetFinishPosition import GetFinishPosition
 from API.GetRobotPosition import GetRobotPosition
 
 
@@ -22,9 +20,9 @@ class MoveToGoal:
         if self.PointName is None:
             while True:
                 
-                self.PointName = GetStartPosition()["point_name"]
-                self.Point_X = GetStartPosition()["position_x"]
-                self.Point_Y = GetStartPosition()["position_y"]
+                self.PointName = GetFinishPosition()["point_name"]
+                self.Point_X = GetFinishPosition()["position_x"]
+                self.Point_Y = GetFinishPosition()["position_y"]
 
                 if self.PointName:
                     print(f"출발지 설정 완료: {self.PointName}")
@@ -56,7 +54,7 @@ class MoveToGoal:
 
     @classmethod
     def post_arrived_true(self):
-        url = "http://10.150.149.248:8080/robot/start_point_arrived"
+        url = "http://10.150.149.248:8080/robot/finish_point_arrived"
         response = requests.post(url)
 
         if response.status_code == 200:
