@@ -13,7 +13,10 @@ from nav2_msgs.action import NavigateToPose
 
 from API.get_realtime_robot_location import get_realtime_locatioin_info
 from API.get_start_finish_location import get_start_location_info, get_finish_location_info
+from API.get_load_status import check_load_status
 
+# BASE_URL = "http://192.168.25.24:8080"
+BASE_URL = "http://10.150.149.248:8080"
 
 class MoveToGoal():
     def __init__(self, start_or_finish):
@@ -54,6 +57,8 @@ class MoveToGoal():
     def move(self):
         self.wait_for_user_input() 
 
+        # print(self.location_x, self.location_y)
+
         rclpy.init()
         node = rclpy.create_node('move_to_goal')
         goal_publisher = node.create_publisher(PoseStamped, '/goal_pose', 10)
@@ -74,17 +79,6 @@ class MoveToGoal():
 
         return self.checking_arrived()
 
-    def set_arrived_true(self) -> bool:
-        url = "http://10.150.149.248:8080/robot/start_location_arrived"
-        response = requests.post(url)
-
-        if response.status_code == 201:
-            # print(response.json()["Success_or_not"])
-            return True
-        else:
-            print(response.status_code)
-            return False
-
     def checking_arrived(self):
         arrival_threshold = 0.3  # ±0.3 오차 범위 설정
 
@@ -96,17 +90,31 @@ class MoveToGoal():
                 distance_to_goal = math.sqrt((latest_x - self.location_x)**2 + (latest_y - self.location_y)**2)
 
                 if distance_to_goal <= arrival_threshold:
-                    print(f"로봇이 출발지에 도착하였습니다.")
                     break
                 else:
-                    print(f"아직 도착하지 않음. 현재 위치: ({latest_x}, {latest_y})")
+                    print(f"목적지로 가는 중... 현재 위치: ({latest_x}, {latest_y})")
 
-                time.sleep(1)
+                time.sleep(3)
             except TypeError as e:
                 time.sleep(1)
                 print("로봇 위치 추척 코드가 실행되고 있지 않습니다.")
 
         return self.set_arrived_true()
+
+    def set_arrived_true(self) -> bool:
+        if self.start_or_finish == "start":
+            url = f"{BASE_URL}/robot/set_start_location_arrived"
+        else:
+            url = f"{BASE_URL}/robot/set_finish_location_arrived"
+        response = requests.get(url)
+
+        if response.status_code == 200:
+            # print(response.json()["Success_or_not"])
+            return True
+        else:
+            print(response.status_code)
+            return False
+
 
 def post_realtime_robot_location(counter, is_arrived):
     if counter == 0:
@@ -125,18 +133,21 @@ def post_realtime_robot_location(counter, is_arrived):
     odom_subscriber.destroy_node()
     rclpy.shutdown()
 
-def move_to_goal():
-    counter = 0
-
+def move_to_goal(start_or_finish):
     # start: 출발지로 출발 
     # finish: 도착지로 출발
-    start_or_finish = "start"
+    # start_or_finish = "finish"
 
+    counter = 0
     is_arrived = MoveToGoal(start_or_finish).move()
 
     while is_arrived is None:
         if is_arrived:
             post_realtime_robot_location(counter, is_arrived)
+
+
+        else:
+            print("error")
         
         counter += 1
     
@@ -144,4 +155,45 @@ def move_to_goal():
 
 
 if __name__ == "__main__":
-    move_to_goal()
+    start_url = f"{BASE_URL}/robot/check_arrived_status?start_or_finish=start"
+    finish_url = f"{BASE_URL}/robot/check_arrived_status?start_or_finish=finish"
+
+    counter = 0
+
+    while True:
+        response = requests.post(start_url)
+        if response.status_code == 201:
+            origin_number = response.json()["value"]["latest_number"]
+
+            while True:
+                time.sleep(1)  # 주기적으로 1초 대기
+
+                response = requests.post(start_url)
+                if response.status_code == 201:
+                    latest_number = response.json()["value"]["latest_number"]
+                    print(counter, "origin_number", origin_number, "latest_number", latest_number)
+
+                    if origin_number != latest_number:
+                        print("robot move to start goal")
+                        move_to_goal("start")
+
+                        ## my code 
+                        while True:
+                            is_load = check_load_status()
+
+                            if is_load:
+                                move_to_goal("finish")
+                                break
+                            else:
+                                print("wait")
+                                time.sleep(1)
+                        break
+                    else:
+                        counter += 1
+                        # print("same, counter:", counter)
+                else:
+                    print("Failed to get response, status code:", response.status_code)
+                    break
+        else:
+            print("Failed to get initial response, status code:", response.status_code)
+            break
